@@ -1,7 +1,11 @@
-import os
 from pathlib import Path
+import shutil
+import tempfile
+import time
 from typing import List
 import requests
+
+from .config import get_api_key
 
 ENDPOINT = 'https://platform.rescale.com/api/v2/'
 
@@ -14,16 +18,20 @@ CORES_PER_SLOT = {
 
 
 DEFAULT_LICENSING = {
-    'useRescaleLicense': True,
+    'useRescaleLicense': False,
     'userDefinedLicenseSettings': {
         'featureSets': [],
     }
 }
 
 
-class Session():
-    def __init__(self, api_token, licensing=None):
-        self.api_token = api_token
+class Client():
+    def __init__(self, api_token=None, licensing=None):
+        self.api_token = api_token or get_api_key()
+
+        if self.api_token is None:
+            raise ValueError('API token must be provided or stored using rescalepy.config.set_api_key')
+
         self.headers = {'Authorization': f'Token {self.api_token}'}
         self.licensing = licensing or DEFAULT_LICENSING
 
@@ -87,6 +95,7 @@ class Session():
                    command: str,
                    version=None,
                    core_type='onyx',
+                   project_id=None,
                    n_cores=1) -> str:
         """Creates an Adams Solver Job
 
@@ -149,9 +158,38 @@ class Session():
         )
         job_id = response.json()['id']
 
+        if project_id:
+            self.add_job_to_project(job_id, project_id)
+
         return job_id
 
-    def submit_job(self, job_id: str) -> str:
+    def add_job_to_project(self, job_id: str,  project_id: str):
+        """Add a job to a project
+
+        Parameters
+        ----------
+        job_id : str
+            ID of the job
+        org_code : str
+            Organization code
+        project_id : str
+            ID of the project
+
+        Returns
+        -------
+        bool
+            True if the job was successfully added to the project
+
+        """
+        response = requests.patch(
+            f'https://platform.rescale.com/api/v2/jobs/{job_id}/',
+            json={'projectId': project_id},
+            headers=self.headers
+        )
+
+        return response.json()['projectId'] == project_id
+
+    def submit_job(self, job_id: str, wait=False) -> str:
         """Submits a previously created job
 
         Parameters
@@ -169,9 +207,42 @@ class Session():
             ENDPOINT + f'jobs/{job_id}/submit/',
             headers={'Content-Type': 'application/json', 'Authorization': f'Token {self.api_token}'}
         )
+
+        if wait and response.status_code == 200:
+            self.wait_for_job(job_id)
+            for file_dict in self.list_job_results_files(job_id):
+                self.download_file(file_dict['id'], file_dict['name'])
+
         return response.status_code == 200
 
-    def upload_file(self, file: Path, type_id: int):
+    def wait_for_job(self, job_id: str, interval=10):
+        """Wait for a job to complete
+
+        Parameters
+        ----------
+        job_id : str
+            ID of the job
+        interval : int, optional
+            Time in seconds to wait between checking the job status, by default 10
+
+        """
+        prev_status = None
+
+        while True:
+            status_dict = self.get_job_status(job_id)[0]
+            status: str = status_dict['status']
+            status_date: str = status_dict['statusDate']
+
+            if status != prev_status:
+                print(f'{status_date} - Job {job_id}: {status}')
+
+            if status.lower() in ['completed', 'force_stop']:
+                break
+
+            prev_status = status
+            time.sleep(interval)
+
+    def upload_file(self, file: Path, type_id: int, zip_if_dir=True):
         """Upload a file to rescale
 
         Parameters
@@ -195,11 +266,21 @@ class Session():
             File id
 
         """
-        response = requests.post(
-            ENDPOINT + 'files/contents/',
-            headers=self.headers,
-            files={'file': (file.stem, file.open('rb'), {'type_id': type_id})}
-        )
+        file = Path(file)
+        with tempfile.TemporaryDirectory() as tmpdir:
+
+            if file.is_dir() and zip_if_dir:
+                file = Path(shutil.make_archive(Path(tmpdir) / file.stem,
+                                                'zip',
+                                                file.parent,
+                                                file.stem))
+
+            response = requests.post(
+                ENDPOINT + 'files/contents/',
+                headers=self.headers,
+                files={'file': (file.name, file.open('rb'), {'type_id': type_id})}
+            )
+
         file_id = response.json()['id']
         return file_id
 
@@ -218,14 +299,25 @@ class Session():
         Returns
         -------
         list
-            TODO
+            A list of dictionaries containing the datestamped statuses. The date is contained in the 
+            'statusDate' key and the status is contained in the 'status' key. The possilbe statuses 
+            are:
+                - PENDING
+                - QUEUED
+                - STARTED
+                - VALIDATED
+                - EXECUTING
+                - COMPLETED
+                - STOPPING
+                - WAITING_FOR_CLUSTER
+                - FORCE_STOP
+                - WAITING_FOR_QUEUE
 
         """
-        response = requests.get(ENDPOINT + f'jobs/{job_id}/statuses/',
-                                headers={**self.headers, 'Content-Type': 'application/json'})
-        return response.json()['results']
+        return self.get(ENDPOINT + f'jobs/{job_id}/statuses/',
+                        headers={**self.headers, 'Content-Type': 'application/json'})
 
-    def download_file(self, file_id: str, dst: str):
+    def download_file(self, file_id: str, dst: Path):
         """Download a file from rescale
 
         Parameters
@@ -236,9 +328,9 @@ class Session():
             Destination path
 
         """
-        response = requests.get(ENDPOINT + f'files/{file_id}/', headers=self.headers)
+        response = requests.get(ENDPOINT + f'files/{file_id}/contents/', headers=self.headers)
 
-        with open(dst, 'wb') as fd:
+        with Path(dst).open('wb') as fd:
             for chunk in response.iter_content():
                 fd.write(chunk)
 
@@ -257,8 +349,7 @@ class Session():
 
         """
         response = requests.get(ENDPOINT + f'jobs/{job_id}/files', headers=self.headers)
-        files = [{file['name']: file['id']} for file in response.json()['results']]
-        return files
+        return response.json()['results']
 
     def list_job_results(self, job_id: str) -> list:
         """...
@@ -276,3 +367,22 @@ class Session():
         """
         response = requests.get(ENDPOINT + f'jobs/{job_id}/runs', headers=self.headers)
         return response.json()['results']
+
+    def download_all_results(self, job_id: str, dst_dir: Path = None):
+        """Download all files associated with a job
+
+        Parameters
+        ----------
+        job_id : str
+            ID of the job
+        dst_dir : Path, optional
+            Destination directory, by default cwd
+
+        """
+        for file_dict in self.list_job_results_files(job_id):
+
+            dst = (Path(file_dict['relativePath']) if dst_dir is None
+                   else Path(dst_dir) / file_dict['relativePath'])
+
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            self.download_file(file_dict['id'], dst)
