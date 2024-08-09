@@ -24,11 +24,12 @@ API_TOKEN = 'your-token'
 client = Client(api_token=API_TOKEN)
 job_id = client.create_job(
     name='OpenFoam Job',
+    command='cd airfoil2D;./Allrun',
     software_code='openfoam_plus',
-    input_files = ['airfoil2D'], # can be files or directories
-    version = 'v1712+-intelmpi',
-    project_id = 'your-project-id',
-    core_type = 'emerald_max',
+    input_files=['airfoil2D'], # can be files or directories
+    version='v1712+-intelmpi',
+    project_id='your-project-id',
+    core_type='emerald_max',
 )
 
 client.submit_job(job_id)

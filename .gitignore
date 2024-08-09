@@ -1,2 +1,5 @@
 **.zip
 *.ipynb
+build
+dist
+rescalepy.egg-info

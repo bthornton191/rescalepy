@@ -1,6 +1,6 @@
 # ---------------------
-version = '0.0.1'
-commit_message = '''added pip scripts'''
+version = '0.0.2'
+commit_message = '''fixed bugs in cli and improved api msg in client.py'''
 date = 'August 9th, 2024'
 # ---------------------
 author = 'Ben Thornton'

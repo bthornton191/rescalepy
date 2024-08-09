@@ -25,12 +25,17 @@ DEFAULT_LICENSING = {
 }
 
 
+API_MSG = ('API token must be provided or stored using `python -m rescalepy config --api-key`.'
+           'To get an API token, go to https://platform.rescale.com/user/settings/api-key/ and '
+           'create a new token.')
+
+
 class Client():
     def __init__(self, api_token=None, licensing=None):
         self.api_token = api_token or get_api_key()
 
         if self.api_token is None:
-            raise ValueError('API token must be provided or stored using rescalepy.config.set_api_key')
+            raise ValueError(API_MSG)
 
         self.headers = {'Authorization': f'Token {self.api_token}'}
         self.licensing = licensing or DEFAULT_LICENSING

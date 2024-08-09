@@ -6,13 +6,12 @@ import sys
 
 import pkg
 
-RE_PIP_VERSION = re.compile('^available versions: ([\\d\\.]+),', flags=re.I | re.MULTILINE)
+RE_PIP_VERSION = re.compile('^available versions: ([\\d\\.]+),?', flags=re.I | re.MULTILINE)
 PIP_VERSION_CMD = f'"{sys.executable}" -m pip index versions rescalepy'
 
 if __name__ == '__main__':
 
-    # latest_version = RE_PIP_VERSION.search(check_output(PIP_VERSION_CMD).decode()).groups()[0]
-    latest_version = None
+    latest_version = RE_PIP_VERSION.search(check_output(PIP_VERSION_CMD).decode()).groups()[0]
     if pkg.version == latest_version:
         print(f'The current version ({pkg.version}) is already the latest version on PyPI')
         sys.exit()
