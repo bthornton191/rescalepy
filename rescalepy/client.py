@@ -299,6 +299,10 @@ class Client():
     def get_job_status(self, job_id: str) -> list:
         """Get the status of a job
 
+        Note
+        ----
+        Statuses are datestamped and the most recent status is the first in the list
+
         Parameters
         ----------
         job_id : str

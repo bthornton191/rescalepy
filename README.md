@@ -35,6 +35,32 @@ job_id = client.create_job(
 client.submit_job(job_id)
 ```
 
+Here is an example of how to use the library to get the status of a job on Rescale:
+
+```python
+statuses = client.get_job_status(job_id)
+current_status = statuses[0]['status']
+
+if current_status == 'COMPLETED':
+    print('Job completed successfully')
+elif current_status == 'FAILED':
+    print('Job failed')
+elif current_status == 'PENDING':
+    print('Job is pending')
+elif current_status == 'RUNNING':
+    print('Job is running')
+else:
+    print('Job status is unknown')
+```
+
+Here is an example of how to use the library to monitor and wait for a job to complete on Rescale 
+and then download the output files:
+
+```python
+client.wait_for_job(job_id)
+client.download_all_results(job_id)
+```
+
 ## CLI Usage
 
 The library also provides a command line interface that you can use to interact with the Rescale 
