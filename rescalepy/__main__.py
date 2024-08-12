@@ -45,7 +45,7 @@ def main():
 
     if subcommand == 'submit':
         get_defaults(args)
-        client = Client(args['api_key'])
+        client = Client(args.get('api_key'))
         job_id = client.create_job(
             name=args['name'],
             input_files=args['input_files'],

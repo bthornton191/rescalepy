@@ -69,10 +69,9 @@ API. You can use the CLI to create/submit jobs, monitor jobs, and download job o
 Here is an example of how to use the CLI to create/submit an OpenFoam job on Rescale:
 
 ```bash
-python -m rescalepy submit "OpenFoam Job" "airfoil2D" \
+python -m rescalepy submit "OpenFoam CLI Job" "airfoil2D" \
 --api-token "your-token" \
 --software-code "openfoam_plus" \
---input-files "airfoil2D" \
 --version "v1712+-intelmpi" \
 --project-id "your-project-id" \
 --core-type "emerald_max"
