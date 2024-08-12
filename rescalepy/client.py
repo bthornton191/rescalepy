@@ -39,63 +39,6 @@ class Client():
         if self.api_token is None or not self.validate_api_token():
             raise ValueError(API_MSG)
 
-    def validate_api_token(self):
-        response = requests.get(ENDPOINT, headers=self.headers)
-        return response.status_code != 401
-
-    def get(self, url: str, headers=None) -> dict:
-        """Gets all the json information at the given url handling pagination.
-
-        Parameters
-        ----------
-        url : str
-            URL to get information from
-
-        Returns
-        -------
-        dict
-            JSON information
-
-        """
-        if headers is None:
-            headers = self.headers
-
-        response = requests.get(url, headers=headers)
-        json: dict = response.json()
-        results: List[dict] = json['results']
-        while json.get('next'):
-            response = requests.get(json['next'], headers=headers)
-            json = response.json()
-            results.extend(json['results'])
-
-        return results
-
-    def list_analyses(self):
-        """
-        List the types of analyses available to the user
-
-        Returns
-        -------
-        List[dict]
-            A list of dictionaries containing the category, name, code, and versions and other 
-            information for each type of analysis available to the user
-
-        """
-        return self.get(ENDPOINT + 'analyses/')
-
-    def get_latest_software_version(self, software_code: str) -> str:
-        analyses = self.list_analyses()
-        software = [sw for sw in analyses if sw['code'] == software_code][0]
-
-        return software['versions'][0]['versionCode']
-
-    def get_core_types(self):
-        return self.get(ENDPOINT + 'coretypes/')
-
-    def get_cheapest_core(self):
-        core_types = self.get_core_types()
-        return sorted(core_types, key=lambda ct: float(ct['price']))[0]['code']
-
     def create_job(self,
                    name: str,
                    software_code: str,
@@ -209,6 +152,8 @@ class Client():
         -------
         bool
             True if the job was successfully submitted
+        wait : bool, optional
+            If True, wait for the job to complete and download the results files. False by default
 
         """
         response = requests.post(
@@ -346,6 +291,8 @@ class Client():
             for chunk in response.iter_content():
                 fd.write(chunk)
 
+        print(f'Downloaded {dst}')
+
     def list_job_results_files(self, job_id: str) -> list:
         """List all files associated with a job
 
@@ -398,6 +345,63 @@ class Client():
 
             dst.parent.mkdir(parents=True, exist_ok=True)
             self.download_file(file_dict['id'], dst)
+
+    def list_analyses(self):
+        """
+        List the types of analyses available to the user
+
+        Returns
+        -------
+        List[dict]
+            A list of dictionaries containing the category, name, code, and versions and other 
+            information for each type of analysis available to the user
+
+        """
+        return self.get(ENDPOINT + 'analyses/')
+
+    def get_latest_software_version(self, software_code: str) -> str:
+        analyses = self.list_analyses()
+        software = [sw for sw in analyses if sw['code'] == software_code][0]
+
+        return software['versions'][0]['versionCode']
+
+    def get_core_types(self):
+        return self.get(ENDPOINT + 'coretypes/')
+
+    def get_cheapest_core(self):
+        core_types = self.get_core_types()
+        return sorted(core_types, key=lambda ct: float(ct['price']))[0]['code']
+
+    def get(self, url: str, headers=None) -> dict:
+        """Gets all the json information at the given url handling pagination.
+
+        Parameters
+        ----------
+        url : str
+            URL to get information from
+
+        Returns
+        -------
+        dict
+            JSON information
+
+        """
+        if headers is None:
+            headers = self.headers
+
+        response = requests.get(url, headers=headers)
+        json: dict = response.json()
+        results: List[dict] = json['results']
+        while json.get('next'):
+            response = requests.get(json['next'], headers=headers)
+            json = response.json()
+            results.extend(json['results'])
+
+        return results
+
+    def validate_api_token(self):
+        response = requests.get(ENDPOINT, headers=self.headers)
+        return response.status_code != 401
 
     @property
     def headers(self):

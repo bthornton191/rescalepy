@@ -1,6 +1,6 @@
 # ---------------------
-version = '0.0.3'
-commit_message = '''new release'''
+version = '0.0.4'
+commit_message = '''Added a print statement to `Client.dowload_file()`'''
 date = 'August 12th, 2024'
 # ---------------------
 author = 'Ben Thornton'
