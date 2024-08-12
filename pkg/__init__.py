@@ -1,6 +1,6 @@
 # ---------------------
-version = '0.0.5'
-commit_message = '''Fixes to CLI'''
+version = '0.0.6'
+commit_message = '''More Fixes to CLI'''
 date = 'August 12th, 2024'
 # ---------------------
 author = 'Ben Thornton'

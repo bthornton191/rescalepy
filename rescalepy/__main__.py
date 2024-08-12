@@ -11,7 +11,7 @@ def main():
     subparsers = parser.add_subparsers(title='subcommands', dest='subcommand', required=True)
     submit_parser = subparsers.add_parser('submit', help='Submit a job')
     submit_parser.add_argument('name', help='Name of the job')
-    submit_parser.add_argument('input-files', type=Path, nargs='+', help='Input files for the job')
+    submit_parser.add_argument('input_files', type=Path, nargs='+', help='Input files for the job')
     submit_parser.add_argument('--software-code', help='Software code for the job', default=None)
     submit_parser.add_argument('--version', help='Version of the software', default=None)
     submit_parser.add_argument('--command', help='Command to run the job', default=None)

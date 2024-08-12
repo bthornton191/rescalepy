@@ -1,0 +1,26 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: rescalepy CLI with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "test_args.py",
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}",
+            "args": [
+                "submit",
+                "OpenFoam CLI Job",
+                "airfoil2D",
+                "--command", "cd airfoil2D;./Allrun",
+                "--software-code", "openfoam_plus",
+                "--version", "v1712+-intelmpi", 
+                "--project-id", "gxzXS",
+                "--core-type", "emerald_max"               
+            ]
+        }
+    ]
+}
