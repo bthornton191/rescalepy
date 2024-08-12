@@ -1,6 +1,6 @@
 # ---------------------
-version = '0.0.6'
-commit_message = '''More Fixes to CLI'''
+version = '0.0.7'
+commit_message = '''Update KEYRING_SERVICE value in config.py'''
 date = 'August 12th, 2024'
 # ---------------------
 author = 'Ben Thornton'
