@@ -34,11 +34,14 @@ class Client():
     def __init__(self, api_token=None, licensing=None):
         self.api_token = api_token or get_api_key()
 
-        if self.api_token is None:
+        self.licensing = licensing or DEFAULT_LICENSING
+
+        if self.api_token is None or not self.validate_api_token():
             raise ValueError(API_MSG)
 
-        self.headers = {'Authorization': f'Token {self.api_token}'}
-        self.licensing = licensing or DEFAULT_LICENSING
+    def validate_api_token(self):
+        response = requests.get(ENDPOINT, headers=self.headers)
+        return response.status_code != 401
 
     def get(self, url: str, headers=None) -> dict:
         """Gets all the json information at the given url handling pagination.
@@ -391,3 +394,7 @@ class Client():
 
             dst.parent.mkdir(parents=True, exist_ok=True)
             self.download_file(file_dict['id'], dst)
+
+    @property
+    def headers(self):
+        return {'Authorization': f'Token {self.api_token}'}

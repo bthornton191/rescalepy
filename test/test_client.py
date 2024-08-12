@@ -2,10 +2,33 @@ from pathlib import Path
 import tempfile
 import unittest
 from rescalepy.client import Client
+from rescalepy.config import get_api_key, unset_api_key, set_api_key
 from test import RESCALE_API_KEY, TEST_CORE_TYPE, TEST_INPUT_FILES, TEST_PROJECT_ID, TEST_SOFTWARE_CODE, TEST_SOFTWARE_VERSION
 
 
-class TestResources(unittest.TestCase):
+class Test_ValidateApiToken(unittest.TestCase):
+
+    def setUp(self):
+        self.api_key = get_api_key()
+        self.client = Client(api_token=RESCALE_API_KEY)
+
+    def test_validate_api_token_bad(self):
+        self.client.api_token = 'xxx'
+        self.assertFalse(self.client.validate_api_token())
+
+    def test_validate_api_token_none(self):
+        self.client.api_token = None
+        self.assertFalse(self.client.validate_api_token())
+
+    def test_validate_api_token_good(self):
+        self.assertTrue(self.client.validate_api_token())
+
+    def tearDown(self):
+        if self.api_key is not None:
+            set_api_key(self.api_key)
+
+
+class Test_Resources(unittest.TestCase):
 
     def setUp(self):
         self.client = Client(api_token=RESCALE_API_KEY)
@@ -27,7 +50,7 @@ class TestResources(unittest.TestCase):
         self.assertTrue(isinstance(cheapest_core, str) and cheapest_core != '')
 
 
-class TestJob(unittest.TestCase):
+class Test_Job(unittest.TestCase):
 
     def setUp(self):
         self.client = Client(api_token=RESCALE_API_KEY)

@@ -3,7 +3,7 @@ from pathlib import Path
 import keyring
 
 CONFIG_FILE = Path.home() / '.rescalepy'
-KEYRING_SERVICE = 'rescale'
+KEYRING_SERVICE = 'test_rescale'
 KEYRING_USERNAME = 'api'
 
 
@@ -20,6 +20,10 @@ def get_config(key: str):
 
 def set_api_key(api_key: str):
     keyring.set_password(KEYRING_SERVICE, KEYRING_USERNAME, api_key)
+
+
+def unset_api_key():
+    keyring.delete_password(KEYRING_SERVICE, KEYRING_USERNAME)
 
 
 def get_api_key() -> str:
