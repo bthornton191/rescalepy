@@ -1,4 +1,5 @@
 # rescalepy
+![PyPI - Downloads](https://img.shields.io/pypi/v/rescalepy)
 ![PyPI - Downloads](https://img.shields.io/pypi/dm/rescalepy)
 
 This is a Python client library for the Rescale API. It provides a simple way to interact with the Rescale API from your Python applications.
