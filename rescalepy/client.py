@@ -8,6 +8,7 @@ import requests
 from .config import get_api_key
 
 ENDPOINT = 'https://platform.rescale.com/api/v2/'
+ITAR_ENDPOINT = 'https://itar.rescale.com/api/v2/'
 
 
 # TODO: Figure out how to use the api to query for cores-per-slot instead of hard coding it here
@@ -31,9 +32,9 @@ API_MSG = ('API token must be provided or stored using `python -m rescalepy conf
 
 
 class Client():
-    def __init__(self, api_token=None, licensing=None):
+    def __init__(self, api_token=None, licensing=None, itar=False):
         self.api_token = api_token or get_api_key()
-
+        self.endpoint = ITAR_ENDPOINT if itar else ENDPOINT
         self.licensing = licensing or DEFAULT_LICENSING
 
         if self.api_token is None or not self.validate_api_token():
@@ -103,7 +104,7 @@ class Client():
         }
 
         response = requests.post(
-            ENDPOINT + 'jobs/',
+            self.endpoint + 'jobs/',
             headers={'Content-Type': 'application/json', **self.headers},
             json=data
         )
@@ -157,7 +158,7 @@ class Client():
 
         """
         response = requests.post(
-            ENDPOINT + f'jobs/{job_id}/submit/',
+            self.endpoint + f'jobs/{job_id}/submit/',
             headers={'Content-Type': 'application/json', 'Authorization': f'Token {self.api_token}'}
         )
 
@@ -229,7 +230,7 @@ class Client():
                                                 file.stem))
 
             response = requests.post(
-                ENDPOINT + 'files/contents/',
+                self.endpoint + 'files/contents/',
                 headers=self.headers,
                 files={'file': (file.name, file.open('rb'), {'type_id': type_id})}
             )
@@ -238,7 +239,7 @@ class Client():
         return file_id
 
     def get_job_details(self, job_id: str) -> dict:
-        response = requests.get(ENDPOINT + f'jobs/{job_id}/', headers=self.headers)
+        response = requests.get(self.endpoint + f'jobs/{job_id}/', headers=self.headers)
         return response.json()
 
     def get_job_status(self, job_id: str) -> list:
@@ -271,7 +272,7 @@ class Client():
                 - WAITING_FOR_QUEUE
 
         """
-        return self.get(ENDPOINT + f'jobs/{job_id}/statuses/',
+        return self.get(self.endpoint + f'jobs/{job_id}/statuses/',
                         headers={**self.headers, 'Content-Type': 'application/json'})
 
     def download_file(self, file_id: str, dst: Path):
@@ -285,7 +286,7 @@ class Client():
             Destination path
 
         """
-        response = requests.get(ENDPOINT + f'files/{file_id}/contents/', headers=self.headers)
+        response = requests.get(self.endpoint + f'files/{file_id}/contents/', headers=self.headers)
 
         with Path(dst).open('wb') as fd:
             for chunk in response.iter_content():
@@ -307,7 +308,7 @@ class Client():
             A list of dictionaries containing the file name and id
 
         """
-        response = requests.get(ENDPOINT + f'jobs/{job_id}/files', headers=self.headers)
+        response = requests.get(self.endpoint + f'jobs/{job_id}/files', headers=self.headers)
         return response.json()['results']
 
     def list_job_results(self, job_id: str) -> list:
@@ -324,7 +325,7 @@ class Client():
             TODO
 
         """
-        response = requests.get(ENDPOINT + f'jobs/{job_id}/runs', headers=self.headers)
+        response = requests.get(self.endpoint + f'jobs/{job_id}/runs', headers=self.headers)
         return response.json()['results']
 
     def download_all_results(self, job_id: str, dst_dir: Path = None):
@@ -357,7 +358,7 @@ class Client():
             information for each type of analysis available to the user
 
         """
-        return self.get(ENDPOINT + 'analyses/')
+        return self.get(self.endpoint + 'analyses/')
 
     def get_latest_software_version(self, software_code: str) -> str:
         analyses = self.list_analyses()
@@ -366,7 +367,7 @@ class Client():
         return software['versions'][0]['versionCode']
 
     def get_core_types(self):
-        return self.get(ENDPOINT + 'coretypes/')
+        return self.get(self.endpoint + 'coretypes/')
 
     def get_cheapest_core(self):
         core_types = self.get_core_types()
@@ -400,7 +401,7 @@ class Client():
         return results
 
     def validate_api_token(self):
-        response = requests.get(ENDPOINT, headers=self.headers)
+        response = requests.get(self.endpoint, headers=self.headers)
         return response.status_code != 401
 
     @property

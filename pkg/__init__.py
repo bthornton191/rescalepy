@@ -1,7 +1,7 @@
 # ---------------------
-version = '0.0.7'
-commit_message = '''Update KEYRING_SERVICE value in config.py'''
-date = 'August 12th, 2024'
+version = '0.1.0'
+commit_message = '''Made the endpoint an instance variable so that it can be set per client. Created an `itar` boolean parameter for the client to automatically use the itar endpoint.'''
+date = 'January 23rd, 2026'
 # ---------------------
 author = 'Ben Thornton'
 author_email = 'bthorn191@gmail.com'
