@@ -1,4 +1,5 @@
 import argparse
+import logging
 from pathlib import Path
 import sys
 from .client import Client
@@ -35,6 +36,17 @@ def main():
     download_parser = subparsers.add_parser('download', help='Download results of a job')
     download_parser.add_argument('job-id', help='ID of the job to download results from')
     download_parser.add_argument('output-dir', type=Path, help='Directory to download results to')
+
+    # Batch subcommands
+    batch_parser = subparsers.add_parser('batch', help='Manage batch jobs')
+    batch_subparsers = batch_parser.add_subparsers(title='batch commands', dest='batch_command', required=True)
+
+    batch_status_parser = batch_subparsers.add_parser('status', help='Show batch status from rescale.json')
+
+    batch_resume_parser = batch_subparsers.add_parser('resume', help='Resume monitoring/downloading from rescale.json')
+    batch_resume_parser.add_argument('--max-workers', type=int, default=5, help='Max concurrent operations')
+    batch_resume_parser.add_argument('--skip-existing', action='store_true', help='Skip downloading existing files')
+    batch_resume_parser.add_argument('--poll-interval', type=int, default=30, help='Seconds between status polls')
 
     if len(sys.argv) == 1:
         parser.print_help()
@@ -81,6 +93,29 @@ def main():
         get_defaults(args)
         client = Client(args['api_key'])
         client.download_all_results(args['job_id'], args['output_dir'])
+
+    elif subcommand == 'batch':
+        # Configure logging for batch commands
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+
+        from .batch import BatchRunner
+
+        if args['batch_command'] == 'status':
+            BatchRunner.status()
+
+        elif args['batch_command'] == 'resume':
+            client = Client()
+            runner = BatchRunner.resume(
+                client=client,
+                max_workers=args['max_workers'],
+                skip_existing=args['skip_existing'],
+                poll_interval=args['poll_interval'],
+            )
+            runner.resume_monitoring()
 
 
 def get_defaults(args):
