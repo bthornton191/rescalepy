@@ -48,7 +48,8 @@ class Client():
                    version=None,
                    core_type='onyx',
                    project_id=None,
-                   n_cores=1) -> str:
+                   n_cores=1,
+                   wall_time: int = 48) -> str:
         """Creates an Adams Solver Job
 
         Parameters
@@ -67,6 +68,8 @@ class Client():
             Core type code indicating which type of hardware to use, by default cheapest option
         n_cores : int, optional
             Number of cores to use.  Must match the number of processors specified in the adm file, by default 1
+        wall_time : int, optional
+            Wall time in hours, by default 48
 
         Returns
         -------
@@ -82,7 +85,8 @@ class Client():
         hardware = {
             'coreType': core_type or self.get_cheapest_core(),
             'coresPerSlot': n_cores,
-            'cores': n_cores
+            'cores': n_cores,
+            'walltime': wall_time
         }
 
         file_ids = [{'id': self.upload_file(file, 1)} for file in input_files]
@@ -108,7 +112,11 @@ class Client():
             headers={'Content-Type': 'application/json', **self.headers},
             json=data
         )
-        job_id = response.json()['id']
+
+        try:
+            job_id = response.json()['id']
+        except KeyError:
+            raise ValueError(f'Error creating job: {response.text}')
 
         if project_id:
             self.add_job_to_project(job_id, project_id)
@@ -148,13 +156,13 @@ class Client():
         ----------
         job_id : str
             Job id
+        wait : bool, optional
+            If True, wait for the job to complete and download the results files. False by default
 
         Returns
         -------
         bool
             True if the job was successfully submitted
-        wait : bool, optional
-            If True, wait for the job to complete and download the results files. False by default
 
         """
         response = requests.post(
