@@ -46,11 +46,33 @@ All API methods follow this structure:
 ### Configuration Cascade
 Parameters resolve in order: explicit argument → stored config (`get_config()`) → None
 
+### RescaleFile Class
+The `RescaleFile` class represents an uploaded file on Rescale:
+```python
+from rescalepy.client import Client, RescaleFile
+
+client = Client()
+
+# Upload returns a RescaleFile
+ref = client.upload(Path('model.acf'))  # RescaleFile(id='abc123', name='model.acf')
+
+# Can be reused in create_job
+client.create_job(
+    name='Job 1',
+    software_code='adams',
+    input_files=[Path('input.acf'), ref],  # Mix of Path and RescaleFile
+    command='run-adams',
+)
+
+# Download accepts RescaleFile or str
+client.download(ref, Path('output/model.acf'))
+```
+
 ### File Upload Convention
-Directories are automatically zipped before upload (see `upload_file` with `zip_if_dir=True`)
+Directories are automatically zipped before upload (see `upload` with `zip_if_dir=True`)
 
 ## Dependencies
-Minimal: `requests`, `keyring` (see [pkg/\_\_init\_\_.py](../pkg/__init__.py) `install_requires`)
+Minimal: `requests`, `keyring`, `typing_extensions` (see [pkg/\_\_init\_\_.py](../pkg/__init__.py) `install_requires`)
 
 Optional: `tqdm` for batch progress bars (`pip install rescalepy[batch]`)
 
@@ -58,6 +80,9 @@ Optional: `tqdm` for batch progress bars (`pip install rescalepy[batch]`)
 - Job statuses: `PENDING`, `QUEUED`, `STARTED`, `VALIDATED`, `EXECUTING`, `COMPLETED`, `STOPPING`, `WAITING_FOR_CLUSTER`, `FORCE_STOP`, `WAITING_FOR_QUEUE`
 - Type hints used throughout (Python 3.6+ style with `List`, `Path`)
 - Docstrings follow NumPy format with Parameters/Returns sections
+- **String quotes**: Use single quotes by default. Double quotes only for:
+  - Docstrings (triple double quotes)
+  - Nested strings (double quotes inside, single quotes outside): `f'Value: {d["key"]}'`
 
 ## Batch Module
 
@@ -67,6 +92,7 @@ The `BatchRunner` class in [rescalepy/batch.py](../rescalepy/batch.py) manages l
 - **Selective downloading** of specific result files (by pattern) into source folders
 - **Resume support** via state persistence to `./rescale.json`
 - **Retry logic** with exponential backoff for API failures
+- **Common file optimization** - files in `common_files` are uploaded once and reused across all jobs
 
 ### BatchRunner Usage Pattern
 ```python
@@ -78,21 +104,21 @@ client = Client()
 
 # Dynamic command resolution via callable
 def get_command(folder: Path) -> str:
-    acf = next(folder.glob("*.acf"))
-    return f"run-adams -f {acf.name}"
+    acf = next(folder.glob('*.acf'))
+    return f'run-adams -f {acf.name}'
 
 runner = BatchRunner(
     client=client,
-    software_code="adams",
-    input_files="*.acf",  # glob pattern or Callable[[Path], List[Path]]
+    software_code='adams',
+    input_files='*.acf',  # glob pattern or Callable[[Path], List[Path]]
     command=get_command,  # static str or Callable[[Path], str]
-    common_files=[Path("postprocess.py")],  # optional shared files
-    download_patterns=["results.json", "*.msg"],
-    on_complete=lambda folder, job_id, status: print(f"{folder.name}: {status}"),
+    common_files=[Path('postprocess.py')],  # optional shared files
+    download_patterns=['results.json', '*.msg'],
+    on_complete=lambda folder, job_id, status: print(f'{folder.name}: {status}'),
     max_workers=5,
 )
 
-folders = list(Path("jobs").glob("run_*"))
+folders = list(Path('jobs').glob('run_*'))
 runner.run(folders)
 ```
 

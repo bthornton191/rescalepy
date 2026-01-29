@@ -14,7 +14,7 @@ from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from .client import Client
+from .client import Client, RescaleFile
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +103,10 @@ class BatchRunner:
         If True, skip downloading files that already exist locally. Defaults to False.
     poll_interval : int, optional
         Seconds between status polls during monitoring. Defaults to 30.
+    wall_time : int, optional
+        Wall time in hours, by default 48
+    clear_state : bool, optional
+        If True, clears any existing state file on initialization. Defaults to False.
 
     Examples
     --------
@@ -139,11 +143,13 @@ class BatchRunner:
         core_type: str = 'onyx',
         n_cores: int = 1,
         project_id: Optional[str] = None,
-        common_files: Optional[List[Path]] = None,
+        common_files: Optional[List[Union[Path, RescaleFile]]] = None,
         on_complete: Optional[Callable[[Path, str, str], None]] = None,
         max_workers: int = 5,
         skip_existing: bool = False,
         poll_interval: int = 30,
+        wall_time: int = 48,
+        clear_state: bool = False,
     ):
         self.client = client
         self.software_code = software_code
@@ -159,9 +165,15 @@ class BatchRunner:
         self.max_workers = max_workers
         self.skip_existing = skip_existing
         self.poll_interval = poll_interval
+        self.wall_time = wall_time
 
         self._state: Dict[str, Any] = {}
-        self._load_state()
+        self._common_file_refs: List[RescaleFile] = []
+
+        if clear_state:
+            self._clear_state()
+        else:
+            self._load_state()
 
     def _load_state(self) -> None:
         """Load state from rescale.json if it exists.
@@ -205,7 +217,17 @@ class BatchRunner:
         STATE_FILE.write_text(json.dumps(self._state, indent=2))
         logger.debug(f'Saved state to {STATE_FILE}')
 
-    def _resolve_input_files(self, folder: Path) -> List[Path]:
+    def _clear_state(self) -> None:
+        """Clear existing state file if it exists."""
+        if STATE_FILE.exists():
+            STATE_FILE.unlink()
+            logger.info(f'Cleared existing state file {STATE_FILE}')
+        self._state = {
+            'jobs': {},
+            'created_at': datetime.now().isoformat(),
+        }
+
+    def _resolve_input_files(self, folder: Path) -> List[Union[Path, RescaleFile]]:
         """Resolve input files for a job folder.
 
         Parameters
@@ -215,18 +237,43 @@ class BatchRunner:
 
         Returns
         -------
-        List[Path]
-            List of input file paths, including common files.
+        List[Union[Path, RescaleFile]]
+            List of input file paths and RescaleFile references for common files.
 
         """
         if callable(self.input_files):
-            files = self.input_files(folder)
+            files: List[Union[Path, RescaleFile]] = self.input_files(folder)
         else:
-            files = list(folder.glob(self.input_files))
+            files: List[Union[Path, RescaleFile]] = list(folder.glob(self.input_files))
 
-        # Append common files
-        files.extend(self.common_files)
+        # Append pre-uploaded common file references
+        files.extend(self._common_file_refs)
         return files
+
+    def _upload_common_files(self) -> None:
+        """Upload common files once and cache RescaleFile references.
+
+        This method processes all items in `common_files`. Path objects are
+        uploaded to Rescale, while RescaleFile objects are used directly.
+        All references are cached for reuse across job submissions.
+
+        """
+        if not self.common_files:
+            return
+
+        if self._common_file_refs:
+            logger.debug('Common files already uploaded, skipping')
+            return
+
+        logger.info(f'Processing {len(self.common_files)} common files...')
+        for item in self.common_files:
+            if isinstance(item, RescaleFile):
+                self._common_file_refs.append(item)
+                logger.debug(f'Using existing RescaleFile: {item.name} ({item.id})')
+            else:
+                ref = self.client.upload(item)
+                self._common_file_refs.append(ref)
+                logger.debug(f'Uploaded common file: {ref.name} ({ref.id})')
 
     def _resolve_command(self, folder: Path) -> str:
         """Resolve the command string for a job folder.
@@ -289,6 +336,7 @@ class BatchRunner:
             core_type=self.core_type,
             n_cores=self.n_cores,
             project_id=self.project_id,
+            wall_time=self.wall_time,
         )
 
         success = self.client.submit_job(job_id)
@@ -434,7 +482,7 @@ class BatchRunner:
             except Exception as e:
                 logger.error(f'on_complete callback failed for {folder_path.name}: {e}')
 
-    def run(self, folders: List[Path]) -> None:
+    def run(self, folders: List[Path], clear_state: bool = False) -> None:
         """Submit, monitor, and download results for a batch of job folders.
 
         Parameters
@@ -443,9 +491,15 @@ class BatchRunner:
             List of folder paths, each containing input files for one job.
 
         """
+        if clear_state:
+            self._clear_state()
+
         logger.info(f'Starting batch run with {len(folders)} folders')
 
         try:
+            # Phase 0: Upload common files once
+            self._upload_common_files()
+
             # Phase 1: Submit jobs
             self._submit_phase(folders)
 

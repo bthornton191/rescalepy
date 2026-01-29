@@ -2,8 +2,9 @@ from pathlib import Path
 import shutil
 import tempfile
 import time
-from typing import List
+from typing import List, Union
 import requests
+from typing_extensions import deprecated
 
 from .config import get_api_key
 
@@ -31,6 +32,36 @@ API_MSG = ('API token must be provided or stored using `python -m rescalepy conf
            'create a new token.')
 
 
+class RescaleFile:
+    """Reference to an uploaded file on Rescale.
+
+    Parameters
+    ----------
+    id : str
+        The Rescale file ID.
+    name : str, optional
+        The filename.
+
+    """
+
+    def __init__(self, id: str, name: str = None):
+        self.id = id
+        self.name = name
+
+    def __repr__(self):
+        if self.name:
+            return f'RescaleFile({self.id!r}, name={self.name!r})'
+        return f'RescaleFile({self.id!r})'
+
+    def __eq__(self, other):
+        if isinstance(other, RescaleFile):
+            return self.id == other.id
+        return False
+
+    def __hash__(self):
+        return hash(self.id)
+
+
 class Client():
     def __init__(self, api_token=None, licensing=None, itar=False):
         self.api_token = api_token or get_api_key()
@@ -43,31 +74,32 @@ class Client():
     def create_job(self,
                    name: str,
                    software_code: str,
-                   input_files: List[Path],
+                   input_files: List[Union[Path, RescaleFile]],
                    command: str,
                    version=None,
                    core_type='onyx',
                    project_id=None,
                    n_cores=1,
                    wall_time: int = 48) -> str:
-        """Creates an Adams Solver Job
+        """Creates a Rescale job.
 
         Parameters
         ----------
         name : str
             Job Name
         software_code : str
-            The code for the softawre/analysis to use
-        input_files : List[Path]
-            Paths to the input files
+            The code for the software/analysis to use
+        input_files : List[Union[Path, RescaleFile]]
+            Paths to input files or RescaleFile references to already-uploaded files
         command : str
             Command to run on rescale to start the job
         version : str, optional
-            version code indicating which version of Adams Solver to use, by default latest version
+            Version code indicating which version of the software to use, by default latest version
         core_type : str, optional
             Core type code indicating which type of hardware to use, by default cheapest option
         n_cores : int, optional
-            Number of cores to use.  Must match the number of processors specified in the adm file, by default 1
+            Number of cores to use. , by default 1
+            Note for MSC Adams Users: Must match the number of processors specified in the adm file
         wall_time : int, optional
             Wall time in hours, by default 48
 
@@ -89,7 +121,12 @@ class Client():
             'walltime': wall_time
         }
 
-        file_ids = [{'id': self.upload_file(file, 1)} for file in input_files]
+        file_ids = []
+        for file in input_files:
+            if isinstance(file, RescaleFile):
+                file_ids.append({'id': file.id})
+            else:
+                file_ids.append({'id': self.upload(file).id})
 
         licensing = {
             'useRescaleLicense': self.licensing['useRescaleLicense'],
@@ -204,14 +241,15 @@ class Client():
             prev_status = status
             time.sleep(interval)
 
-    def upload_file(self, file: Path, type_id: int, zip_if_dir=True):
-        """Upload a file to rescale
+    def upload(self, file: Path, type_id: int = 1, zip_if_dir: bool = True) -> RescaleFile:
+        """Upload a file to Rescale.
 
         Parameters
         ----------
-        filename : str
-            Local name of file
-        type_id : int
+        file : Path
+            Local path to the file or directory to upload.
+        type_id : int, optional
+            File type identifier. Defaults to 1 (input file).
             1   input file
             2   template file
             3   parameter file
@@ -221,21 +259,27 @@ class Client():
             8   case file
             9   optimizer file
             10  temporary file
+        zip_if_dir : bool, optional
+            If True and file is a directory, zip it before uploading. Defaults to True.
 
         Returns
         -------
-        str
-            File id
+        RescaleFile
+            Reference to the uploaded file.
 
         """
         file = Path(file)
-        with tempfile.TemporaryDirectory() as tmpdir:
+        original_name = file.name
 
+        with tempfile.TemporaryDirectory() as tmpdir:
             if file.is_dir() and zip_if_dir:
-                file = Path(shutil.make_archive(Path(tmpdir) / file.stem,
-                                                'zip',
-                                                file.parent,
-                                                file.stem))
+                file = Path(shutil.make_archive(
+                    Path(tmpdir) / file.stem,
+                    'zip',
+                    file.parent,
+                    file.stem
+                ))
+                original_name = file.name
 
             response = requests.post(
                 self.endpoint + 'files/contents/',
@@ -244,7 +288,31 @@ class Client():
             )
 
         file_id = response.json()['id']
-        return file_id
+        return RescaleFile(id=file_id, name=original_name)
+
+    @deprecated('Use upload() instead, which returns a RescaleFile object')
+    def upload_file(self, file: Path, type_id: int, zip_if_dir=True) -> str:
+        """Upload a file to rescale.
+
+        .. deprecated::
+            Use :meth:`upload` instead, which returns a :class:`RescaleFile`.
+
+        Parameters
+        ----------
+        file : Path
+            Local path to file.
+        type_id : int
+            File type identifier.
+        zip_if_dir : bool, optional
+            If True and file is a directory, zip it before uploading.
+
+        Returns
+        -------
+        str
+            File id.
+
+        """
+        return self.upload(file, type_id, zip_if_dir).id
 
     def get_job_details(self, job_id: str) -> dict:
         response = requests.get(self.endpoint + f'jobs/{job_id}/', headers=self.headers)
@@ -283,17 +351,18 @@ class Client():
         return self.get(self.endpoint + f'jobs/{job_id}/statuses/',
                         headers={**self.headers, 'Content-Type': 'application/json'})
 
-    def download_file(self, file_id: str, dst: Path):
-        """Download a file from rescale
+    def download(self, file: Union[RescaleFile, str], dst: Path) -> None:
+        """Download a file from Rescale.
 
         Parameters
         ----------
-        file_id : str
-            ID of the file to download
-        dst : str
-            Destination path
+        file : RescaleFile or str
+            The file to download, either as a RescaleFile object or a file ID string.
+        dst : Path
+            Destination path for the downloaded file.
 
         """
+        file_id = file.id if isinstance(file, RescaleFile) else file
         response = requests.get(self.endpoint + f'files/{file_id}/contents/', headers=self.headers)
 
         with Path(dst).open('wb') as fd:
@@ -301,6 +370,23 @@ class Client():
                 fd.write(chunk)
 
         print(f'Downloaded {dst}')
+
+    @deprecated('Use download() instead, which accepts RescaleFile or str')
+    def download_file(self, file_id: str, dst: Path) -> None:
+        """Download a file from rescale.
+
+        .. deprecated::
+            Use :meth:`download` instead, which accepts :class:`RescaleFile` or str.
+
+        Parameters
+        ----------
+        file_id : str
+            ID of the file to download.
+        dst : Path
+            Destination path.
+
+        """
+        self.download(file_id, dst)
 
     def list_job_results_files(self, job_id: str) -> list:
         """List all files associated with a job
