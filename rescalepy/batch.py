@@ -23,9 +23,24 @@ logger = logging.getLogger(__name__)
 try:
     from tqdm import tqdm
 except ImportError:
-    def tqdm(iterable, **kwargs):
+    class tqdm:
         """Fallback when tqdm is not installed."""
-        return iterable
+
+        def __init__(self, iterable=None, **kwargs):
+            self.iterable = iterable
+            self.n = kwargs.get('initial', 0)
+
+        def __iter__(self):
+            return iter(self.iterable) if self.iterable else iter([])
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def update(self, n=1):
+            self.n += n
 
 
 STATE_FILE = Path('rescale.json')
@@ -452,10 +467,10 @@ class BatchRunner:
 
             to_download.append((file_dict['id'], dst))
 
-        # Download with progress bar
-        for file_id, dst in tqdm(to_download, desc=f'Downloading {folder_path.name}', leave=False):
+        # Download files (no per-file progress bar - job-level bar is in _monitor_phase)
+        for file_id, dst in to_download:
             try:
-                self._download_file_with_retry(file_id, dst)
+                self._download_with_retry(file_id, dst)
             except Exception as e:
                 logger.error(f'Failed to download {dst.name}: {e}')
 
@@ -464,7 +479,7 @@ class BatchRunner:
             self._save_state()
 
     @retry()
-    def _download_file_with_retry(self, file_id: str, dst: Path) -> None:
+    def _download_with_retry(self, file_id: str, dst: Path) -> None:
         """Download a single file with retry logic.
 
         Parameters
@@ -475,7 +490,7 @@ class BatchRunner:
             The destination path for the downloaded file.
 
         """
-        self.client.download_file(file_id, dst)
+        self.client.download(file_id, dst)
         logger.info(f'Downloaded {dst}')
 
     def _handle_completion(self, folder: str, job_id: str, status: str) -> None:
@@ -526,7 +541,7 @@ class BatchRunner:
             # Phase 1: Submit jobs
             self._submit_phase(folders)
 
-            # Phase 2: Monitor and download
+            # Phase 2: Monitor and download (with job-level progress bar)
             self._monitor_phase()
 
         except KeyboardInterrupt:
@@ -582,36 +597,45 @@ class BatchRunner:
 
     def _monitor_phase(self) -> None:
         """Poll active jobs until all reach terminal state, downloading on completion."""
-        while True:
-            active_jobs = self._get_active_jobs()
+        # Count total jobs to track progress
+        total_jobs = len(self._state['jobs'])
+        completed_before = sum(
+            1 for j in self._state['jobs'].values()
+            if j.get('status', '').lower() in TERMINAL_STATUSES
+        )
 
-            if not active_jobs:
-                logger.info('All jobs have reached terminal state')
-                break
+        with tqdm(total=total_jobs, initial=completed_before, desc='Processing jobs', leave=True) as pbar:
+            while True:
+                active_jobs = self._get_active_jobs()
 
-            logger.debug(f'Polling {len(active_jobs)} active jobs...')
+                if not active_jobs:
+                    logger.info('All jobs have reached terminal state')
+                    break
 
-            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-                futures: Dict[Future, tuple] = {
-                    executor.submit(self._poll_job_status, folder, data['job_id']): (folder, data['job_id'])
-                    for folder, data in active_jobs.items()
-                    if data.get('job_id')
-                }
+                logger.debug(f'Polling {len(active_jobs)} active jobs...')
 
-                for future in as_completed(futures):
-                    folder, job_id = futures[future]
-                    try:
-                        status = future.result()
-                        if status in TERMINAL_STATUSES:
-                            self._handle_completion(folder, job_id, status)
-                    except Exception as e:
-                        logger.error(f'Error processing {job_id}: {e}')
+                with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                    futures: Dict[Future, tuple] = {
+                        executor.submit(self._poll_job_status, folder, data['job_id']): (folder, data['job_id'])
+                        for folder, data in active_jobs.items()
+                        if data.get('job_id')
+                    }
 
-            self._save_state()
+                    for future in as_completed(futures):
+                        folder, job_id = futures[future]
+                        try:
+                            status = future.result()
+                            if status in TERMINAL_STATUSES:
+                                self._handle_completion(folder, job_id, status)
+                                pbar.update(1)
+                        except Exception as e:
+                            logger.error(f'Error processing {job_id}: {e}')
 
-            # Check if any active jobs remain before sleeping
-            if self._get_active_jobs():
-                time.sleep(self.poll_interval)
+                self._save_state()
+
+                # Check if any active jobs remain before sleeping
+                if self._get_active_jobs():
+                    time.sleep(self.poll_interval)
 
     def _print_summary(self) -> None:
         """Print a summary of the batch run.

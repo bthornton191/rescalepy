@@ -4,3 +4,4 @@ build
 dist
 rescalepy.egg-info
 **.pyc
+.vscode/settings.json

@@ -867,8 +867,8 @@ class TestDownloadPhase(unittest.TestCase):
         runner._download_job_results(folder_key, 'job123')
 
         # Should download results.json and model.msg
-        self.assertEqual(self.mock_client.download_file.call_count, 2)
-        downloaded_files = [c[0][1].name for c in self.mock_client.download_file.call_args_list]
+        self.assertEqual(self.mock_client.download.call_count, 2)
+        downloaded_files = [c[0][1].name for c in self.mock_client.download.call_args_list]
         self.assertIn('results.json', downloaded_files)
         self.assertIn('model.msg', downloaded_files)
 
@@ -936,8 +936,8 @@ class TestDownloadPhase(unittest.TestCase):
         runner._download_job_results(folder_key, 'job123')
 
         # Only new_file.json should be downloaded
-        self.assertEqual(self.mock_client.download_file.call_count, 1)
-        self.assertEqual(self.mock_client.download_file.call_args[0][1].name, 'new_file.json')
+        self.assertEqual(self.mock_client.download.call_count, 1)
+        self.assertEqual(self.mock_client.download.call_args[0][1].name, 'new_file.json')
 
     def test_download_overwrites_by_default(self):
         """Existing files are overwritten when skip_existing=False (default)."""
@@ -964,7 +964,7 @@ class TestDownloadPhase(unittest.TestCase):
         runner._download_job_results(folder_key, 'job123')
 
         # File should still be downloaded (overwritten)
-        self.assertEqual(self.mock_client.download_file.call_count, 1)
+        self.assertEqual(self.mock_client.download.call_count, 1)
 
 
 class TestOnCompleteCallback(unittest.TestCase):

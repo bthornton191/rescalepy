@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 import shutil
 import tempfile
@@ -7,6 +8,8 @@ import requests
 from typing_extensions import deprecated
 
 from .config import get_api_key
+
+logger = logging.getLogger(__name__)
 
 ENDPOINT = 'https://platform.rescale.com/api/v2/'
 ITAR_ENDPOINT = 'https://itar.rescale.com/api/v2/'
@@ -210,7 +213,7 @@ class Client():
         if wait and response.status_code == 200:
             self.wait_for_job(job_id)
             for file_dict in self.list_job_results_files(job_id):
-                self.download_file(file_dict['id'], file_dict['name'])
+                self.download(file_dict['id'], file_dict['name'])
 
         return response.status_code == 200
 
@@ -233,7 +236,7 @@ class Client():
             status_date: str = status_dict['statusDate']
 
             if status != prev_status:
-                print(f'{status_date} - Job {job_id}: {status}')
+                logger.info(f'{status_date} - Job {job_id}: {status}')
 
             if status.lower() in ['completed', 'force_stop']:
                 break
@@ -369,7 +372,7 @@ class Client():
             for chunk in response.iter_content():
                 fd.write(chunk)
 
-        print(f'Downloaded {dst}')
+        logger.debug(f'Downloaded {dst}')
 
     @deprecated('Use download() instead, which accepts RescaleFile or str')
     def download_file(self, file_id: str, dst: Path) -> None:
@@ -439,7 +442,7 @@ class Client():
                    else Path(dst_dir) / file_dict['relativePath'])
 
             dst.parent.mkdir(parents=True, exist_ok=True)
-            self.download_file(file_dict['id'], dst)
+            self.download(file_dict['id'], dst)
 
     def list_analyses(self):
         """
