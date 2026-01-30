@@ -7,6 +7,7 @@ State is persisted to `./rescale.json` for resume support.
 import fnmatch
 import json
 import logging
+import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -105,6 +106,9 @@ class BatchRunner:
         Seconds between status polls during monitoring. Defaults to 30.
     wall_time : int, optional
         Wall time in hours, by default 48
+    download_delay : int, optional
+        Seconds to wait after job completion before downloading files.
+        Allows Rescale time to index output files. Defaults to 5.
     clear_state : bool, optional
         If True, clears any existing state file on initialization. Defaults to False.
 
@@ -149,6 +153,7 @@ class BatchRunner:
         skip_existing: bool = False,
         poll_interval: int = 30,
         wall_time: int = 48,
+        download_delay: int = 5,
         clear_state: bool = False,
     ):
         self.client = client
@@ -166,8 +171,10 @@ class BatchRunner:
         self.skip_existing = skip_existing
         self.poll_interval = poll_interval
         self.wall_time = wall_time
+        self.download_delay = download_delay
 
         self._state: Dict[str, Any] = {}
+        self._state_lock = threading.Lock()
         self._common_file_refs: List[RescaleFile] = []
 
         if clear_state:
@@ -316,11 +323,12 @@ class BatchRunner:
         folder_key = str(folder.resolve())
 
         # Skip if already submitted
-        if folder_key in self._state['jobs']:
-            existing: Dict[str, Any] = self._state['jobs'][folder_key]
-            if existing.get('job_id'):
-                logger.debug(f'Skipping {folder.name}: already submitted as {existing["job_id"]}')
-                return existing['job_id']
+        with self._state_lock:
+            if folder_key in self._state['jobs']:
+                existing: Dict[str, Any] = self._state['jobs'][folder_key]
+                if existing.get('job_id'):
+                    logger.debug(f'Skipping {folder.name}: already submitted as {existing["job_id"]}')
+                    return existing['job_id']
 
         input_files = self._resolve_input_files(folder)
         command = self._resolve_command(folder)
@@ -343,12 +351,13 @@ class BatchRunner:
         if not success:
             raise RuntimeError(f'Failed to submit job {job_id}')
 
-        self._state['jobs'][folder_key] = {
-            'job_id': job_id,
-            'status': 'submitted',
-            'downloaded': False,
-        }
-        self._save_state()
+        with self._state_lock:
+            self._state['jobs'][folder_key] = {
+                'job_id': job_id,
+                'status': 'submitted',
+                'downloaded': False,
+            }
+            self._save_state()
 
         logger.info(f'Submitted {folder.name} as job {job_id}')
         return job_id
@@ -412,9 +421,10 @@ class BatchRunner:
         """
         folder_path = Path(folder)
 
-        if self._state['jobs'][folder].get('downloaded'):
-            logger.debug(f'Skipping download for {folder_path.name}: already downloaded')
-            return
+        with self._state_lock:
+            if self._state['jobs'][folder].get('downloaded'):
+                logger.debug(f'Skipping download for {folder_path.name}: already downloaded')
+                return
 
         try:
             files: List[Dict[str, Any]] = self.client.list_job_results_files(job_id)
@@ -422,26 +432,36 @@ class BatchRunner:
             logger.error(f'Failed to list files for {job_id}: {e}')
             return
 
+        # Collect files to download
+        to_download: List[tuple] = []
+        logger.debug(f'Checking {len(files)} files against patterns: {self.download_patterns}')
         for file_dict in files:
             filename: str = file_dict.get('name', '')
+            basename: str = Path(filename).name
+            logger.debug(f'  File: {filename!r} -> basename: {basename!r}')
 
-            # Check if filename matches any download pattern
-            if not any(fnmatch.fnmatch(filename, p) for p in self.download_patterns):
+            # Check if basename matches any download pattern
+            if not any(fnmatch.fnmatch(basename, p) for p in self.download_patterns):
                 continue
 
-            dst = folder_path / filename
+            dst: Path = folder_path / basename
 
             if self.skip_existing and dst.exists():
                 logger.debug(f'Skipping {filename}: already exists')
                 continue
 
-            try:
-                self._download_file_with_retry(file_dict['id'], dst)
-            except Exception as e:
-                logger.error(f'Failed to download {filename} for {job_id}: {e}')
+            to_download.append((file_dict['id'], dst))
 
-        self._state['jobs'][folder]['downloaded'] = True
-        self._save_state()
+        # Download with progress bar
+        for file_id, dst in tqdm(to_download, desc=f'Downloading {folder_path.name}', leave=False):
+            try:
+                self._download_file_with_retry(file_id, dst)
+            except Exception as e:
+                logger.error(f'Failed to download {dst.name}: {e}')
+
+        with self._state_lock:
+            self._state['jobs'][folder]['downloaded'] = True
+            self._save_state()
 
     @retry()
     def _download_file_with_retry(self, file_id: str, dst: Path) -> None:
@@ -474,6 +494,9 @@ class BatchRunner:
         folder_path = Path(folder)
 
         if status == 'completed':
+            if self.download_delay > 0:
+                logger.debug(f'Waiting {self.download_delay}s for file indexing...')
+                time.sleep(self.download_delay)
             self._download_job_results(folder, job_id)
 
         if self.on_complete:
@@ -612,6 +635,7 @@ class BatchRunner:
         max_workers: int = 5,
         skip_existing: bool = False,
         poll_interval: int = 30,
+        download_delay: int = 5,
     ) -> 'BatchRunner':
         """Resume a batch run from existing rescale.json state.
 
@@ -627,6 +651,9 @@ class BatchRunner:
             If True, skip downloading files that already exist locally. Defaults to False.
         poll_interval : int, optional
             Seconds between status polls during monitoring. Defaults to 30.
+        download_delay : int, optional
+            Seconds to wait after job completion before downloading files.
+            Allows Rescale time to index output files. Defaults to 5.
 
         Returns
         -------
@@ -659,6 +686,7 @@ class BatchRunner:
             max_workers=max_workers,
             skip_existing=skip_existing,
             poll_interval=poll_interval,
+            download_delay=download_delay,
         )
 
         logger.info(f'Resuming batch with {len(runner._state.get("jobs", {}))} jobs')

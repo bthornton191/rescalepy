@@ -1295,5 +1295,127 @@ class TestPrintSummary(unittest.TestCase):
         runner._print_summary()
 
 
+class TestDownloadDelay(unittest.TestCase):
+    """Tests for download_delay functionality."""
+
+    def setUp(self):
+        self.mock_client = MagicMock()
+        self.temp_dir = tempfile.mkdtemp()
+        self.original_cwd = Path.cwd()
+        import os
+        os.chdir(self.temp_dir)
+        self.folder1 = Path(self.temp_dir) / 'job1'
+        self.folder1.mkdir()
+
+    def tearDown(self):
+        import os
+        os.chdir(self.original_cwd)
+        import shutil
+        shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def test_download_delay_defaults_to_5(self):
+        """download_delay defaults to 5 seconds."""
+        runner = BatchRunner(
+            client=self.mock_client,
+            software_code='test',
+            input_files='*',
+            command='run',
+            download_patterns=[],
+        )
+        self.assertEqual(runner.download_delay, 5)
+
+    def test_download_delay_custom_value(self):
+        """download_delay can be set to a custom value."""
+        runner = BatchRunner(
+            client=self.mock_client,
+            software_code='test',
+            input_files='*',
+            command='run',
+            download_patterns=[],
+            download_delay=15,
+        )
+        self.assertEqual(runner.download_delay, 15)
+
+    @patch('rescalepy.batch.time.sleep')
+    def test_download_delay_applied_before_download(self, mock_sleep):
+        """Delay is applied before downloading on completion."""
+        self.mock_client.list_job_results_files.return_value = []
+
+        runner = BatchRunner(
+            client=self.mock_client,
+            software_code='test',
+            input_files='*',
+            command='run',
+            download_patterns=[],
+            download_delay=10,
+        )
+
+        folder_key = str(self.folder1.resolve())
+        runner._state['jobs'][folder_key] = {'job_id': 'job123', 'status': 'completed', 'downloaded': False}
+
+        runner._handle_completion(folder_key, 'job123', 'completed')
+
+        mock_sleep.assert_called_once_with(10)
+
+    @patch('rescalepy.batch.time.sleep')
+    def test_download_delay_zero_skips_sleep(self, mock_sleep):
+        """download_delay=0 skips the sleep call."""
+        self.mock_client.list_job_results_files.return_value = []
+
+        runner = BatchRunner(
+            client=self.mock_client,
+            software_code='test',
+            input_files='*',
+            command='run',
+            download_patterns=[],
+            download_delay=0,
+        )
+
+        folder_key = str(self.folder1.resolve())
+        runner._state['jobs'][folder_key] = {'job_id': 'job123', 'status': 'completed', 'downloaded': False}
+
+        runner._handle_completion(folder_key, 'job123', 'completed')
+
+        mock_sleep.assert_not_called()
+
+    @patch('rescalepy.batch.time.sleep')
+    def test_download_delay_not_applied_on_failure(self, mock_sleep):
+        """Delay is not applied when job fails (no download needed)."""
+        runner = BatchRunner(
+            client=self.mock_client,
+            software_code='test',
+            input_files='*',
+            command='run',
+            download_patterns=[],
+            download_delay=10,
+        )
+
+        folder_key = str(self.folder1.resolve())
+        runner._state['jobs'][folder_key] = {'job_id': 'job123', 'status': 'force_stop', 'downloaded': False}
+
+        runner._handle_completion(folder_key, 'job123', 'force_stop')
+
+        mock_sleep.assert_not_called()
+
+    def test_resume_passes_download_delay(self):
+        """resume() passes download_delay to the runner."""
+        state = {
+            'jobs': {},
+            'config': {
+                'software_code': 'test',
+                'download_patterns': ['*.txt'],
+            },
+            'created_at': '2026-01-30T00:00:00',
+        }
+        STATE_FILE.write_text(json.dumps(state))
+
+        runner = BatchRunner.resume(
+            client=self.mock_client,
+            download_delay=20,
+        )
+
+        self.assertEqual(runner.download_delay, 20)
+
+
 if __name__ == '__main__':
     unittest.main()
