@@ -405,8 +405,7 @@ class Client():
             A list of dictionaries containing the file name and id
 
         """
-        response = requests.get(self.endpoint + f'jobs/{job_id}/files', headers=self.headers)
-        return response.json()['results']
+        return self.get(self.endpoint + f'jobs/{job_id}/files/')
 
     def list_job_results(self, job_id: str) -> list:
         """...
@@ -422,8 +421,7 @@ class Client():
             TODO
 
         """
-        response = requests.get(self.endpoint + f'jobs/{job_id}/runs', headers=self.headers)
-        return response.json()['results']
+        return self.get(self.endpoint + f'jobs/{job_id}/runs/')
 
     def download_all_results(self, job_id: str, dst_dir: Path = None):
         """Download all files associated with a job
@@ -488,10 +486,12 @@ class Client():
             headers = self.headers
 
         response = requests.get(url, headers=headers)
+        response.raise_for_status()
         json: dict = response.json()
         results: List[dict] = json['results']
         while json.get('next'):
             response = requests.get(json['next'], headers=headers)
+            response.raise_for_status()
             json = response.json()
             results.extend(json['results'])
 
